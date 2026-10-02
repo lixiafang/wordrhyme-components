@@ -165,8 +165,11 @@ function resolveActions<TAction extends CrudActionBase>(
         .reduce<Record<string, string>>((result, entry) => ({ ...result, ...entry.labels }), {})
     : {};
   const present = (action: TAction): TAction => {
-    const id = action.id ?? (isCustomAction(action) ? undefined : action.type);
-    const label = id && Object.hasOwn(labels, id) ? labels[id] : undefined;
+    const label = action.id && Object.hasOwn(labels, action.id)
+      ? labels[action.id]
+      : !isCustomAction(action) && Object.hasOwn(labels, action.type)
+        ? labels[action.type]
+        : undefined;
     return withoutRegistryMeta(label === undefined ? action : { ...action, label });
   };
   const registered = targetId ? crudActions.get<TAction>(targetId, zone) : [];
