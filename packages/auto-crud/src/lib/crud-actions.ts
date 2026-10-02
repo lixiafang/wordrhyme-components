@@ -24,9 +24,18 @@ export type CrudActionRegistration<TAction extends CrudActionBase = CrudActionBa
   actions: readonly TAction[];
 };
 
+/** Labels change presentation only; callbacks, visibility and ordering stay intact. */
+export type CrudActionLabelRegistration = {
+  targetId: string;
+  zone: CrudActionZone;
+  ownerId: string;
+  labels: Readonly<Record<string, string>>;
+};
+
 type RegistryListener = () => void;
 
 const entries = new Map<string, CrudActionEntry>();
+const labelEntries = new Map<string, CrudActionLabelRegistration>();
 const index = new Map<string, Set<string>>();
 const listeners = new Set<RegistryListener>();
 let seq = 0;
@@ -93,6 +102,7 @@ function unregisterOwnerActions(
   ownerId: string,
   options: { targetId?: string; zone?: CrudActionZone } = {},
   shouldNotify = true,
+  includeLabels = true,
 ): void {
   let changed = false;
 
@@ -104,6 +114,16 @@ function unregisterOwnerActions(
     entries.delete(key);
     removeFromIndex(key, entry);
     changed = true;
+  }
+
+  if (includeLabels) {
+    for (const [key, entry] of labelEntries) {
+      if (entry.ownerId !== ownerId) continue;
+      if (options.targetId && entry.targetId !== options.targetId) continue;
+      if (options.zone && entry.zone !== options.zone) continue;
+      labelEntries.delete(key);
+      changed = true;
+    }
   }
 
   if (changed && shouldNotify) {
@@ -138,6 +158,17 @@ function resolveActions<TAction extends CrudActionBase>(
   zone: CrudActionZone,
   ownerActions: readonly TAction[],
 ): TAction[] {
+  const labels = targetId
+    ? Array.from(labelEntries.values())
+        .filter((entry) => entry.targetId === targetId && entry.zone === zone)
+        .sort((left, right) => left.ownerId.localeCompare(right.ownerId))
+        .reduce<Record<string, string>>((result, entry) => ({ ...result, ...entry.labels }), {})
+    : {};
+  const present = (action: TAction): TAction => {
+    const id = action.id ?? (isCustomAction(action) ? undefined : action.type);
+    const label = id && Object.hasOwn(labels, id) ? labels[id] : undefined;
+    return withoutRegistryMeta(label === undefined ? action : { ...action, label });
+  };
   const registered = targetId ? crudActions.get<TAction>(targetId, zone) : [];
   const hiddenCustomIds = new Set(registered.flatMap(({ action }) =>
     isCustomAction(action) && action.hidden && action.id ? [action.id] : [],
@@ -146,7 +177,7 @@ function resolveActions<TAction extends CrudActionBase>(
     isCustomAction(action) && Boolean(action.id && hiddenCustomIds.has(action.id));
   const baseActions = ownerActions
     .filter((action) => !action.hidden && !isMaskedCustom(action))
-    .map((action) => withoutRegistryMeta(action));
+    .map((action) => present(action));
 
   if (registered.length === 0) return baseActions;
 
@@ -171,7 +202,7 @@ function resolveActions<TAction extends CrudActionBase>(
       continue;
     }
 
-    const builtin = withoutRegistryMeta(action);
+    const builtin = present(action);
     if (existingIndex >= 0) {
       nextActions[existingIndex] = {
         ...nextActions[existingIndex],
@@ -189,7 +220,7 @@ function resolveActions<TAction extends CrudActionBase>(
       .sort((left, right) => left.seq - right.seq)
       .flatMap(({ action }) => {
         if (action.hidden) return [];
-        if (isCustomAction(action)) return [withoutRegistryMeta(action)];
+        if (isCustomAction(action)) return [present(action)];
         const builtin = nextActions.find((item) => item.type === action.type);
         return builtin ? [builtin] : [];
       });
@@ -234,6 +265,7 @@ export const crudActions = {
         zone: registration.zone,
       },
       false,
+      false,
     );
 
     registration.actions.forEach((action, index) => {
@@ -253,11 +285,18 @@ export const crudActions = {
     notify();
   },
 
+  registerLabels(registration: CrudActionLabelRegistration): void {
+    const key = `${registration.ownerId}:${registration.targetId}:${registration.zone}`;
+    labelEntries.set(key, { ...registration, labels: { ...registration.labels } });
+    notify();
+  },
+
   unregister: unregisterOwnerActions,
 
   clear(): void {
-    if (entries.size === 0) return;
+    if (entries.size === 0 && labelEntries.size === 0) return;
     entries.clear();
+    labelEntries.clear();
     index.clear();
     notify();
   },

@@ -1591,3 +1591,27 @@ Publish that UI version before this AutoCrud change. The development dependency
 is pinned to the already-published alpha.19 for reproducible ESM tests and type
 checks until alpha.20 is published; it is not the supported CommonJS runtime.
 The CommonJS export/identity regression belongs to the UI provider repository.
+
+
+### Action label overrides
+
+`crudActions.registerLabels({ targetId, zone, ownerId, labels })` changes labels
+for existing actions only. Zones are `toolbar`, `row`, and `batch`; custom actions
+must expose a stable `id`, while builtin actions also accept their type (`edit`,
+`delete`, etc.) as a fallback ID. Missing IDs do not create buttons. Callbacks,
+permissions, hidden state, ordering and component rendering are unchanged.
+Components that render their own buttons continue to own their labels.
+
+```ts
+crudActions.registerLabels({
+  targetId: 'example.products',
+  zone: 'row',
+  ownerId: 'example.connector',
+  labels: { 'products.sync': 'Sync to provider', edit: 'Edit product' },
+});
+```
+
+Label registrations are reactive and scoped to target, zone and plugin owner.
+`crudActions.unregister(ownerId)` removes the owner's actions and labels, restoring
+the underlying labels. Conflicting owners use lexicographic owner ID order (last
+wins), independently of load timing. Existing action registrations are unchanged.

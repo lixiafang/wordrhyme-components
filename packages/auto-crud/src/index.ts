@@ -93,6 +93,7 @@ export type {
   AutoCrudOption,
 } from './lib/registries';
 export { crudActions } from './lib/crud-actions';
+export type { CrudActionLabelRegistration } from './lib/crud-actions';
 export type {
   CrudActionBase,
   CrudActionEntry,
