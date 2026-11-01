@@ -964,6 +964,29 @@ function assertCrudExtraValuesWritableForRows<TContext>(
   }
 }
 
+function assignBatchIds(
+  inputs: Array<SplitCrudExtensionInput<unknown>>,
+  idField: string,
+  column: AnyColumn | undefined,
+): void {
+  if (!column?.defaultFn) return;
+
+  for (const input of inputs) {
+    if (!input.extraValues || !isObjectRecord(input.data)) continue;
+    const currentId = input.data[idField];
+    if (currentId != null && String(currentId).length > 0) continue;
+
+    // Use the table's runtime default before matching returned rows to extensions.
+    const id = column.defaultFn();
+    if (typeof id !== 'string' && typeof id !== 'number' && typeof id !== 'bigint') {
+      continue;
+    }
+    input.data[idField] = id;
+    input.baseValues[idField] = id;
+    input.rawValues[idField] = id;
+  }
+}
+
 function assertCrudExtraValuesMappableForRows(
   inputs: Array<SplitCrudExtensionInput<unknown>>,
   idField: string,
@@ -2550,6 +2573,7 @@ export function createCrudRouter<
               splitCrudExtensionWriteInput(item, tableColumnNames),
             );
             assertCrudExtraValuesWritableForRows(ctx, config, splitItems);
+            assignBatchIds(splitItems, idField, getTableColumn(table, idField));
             assertCrudExtraValuesMappableForRows(splitItems, idField);
             return runCrudExtensionWriteTransaction(
               ctx,
@@ -2644,6 +2668,7 @@ export function createCrudRouter<
               return { success: 0, updated: 0, skipped: 0, failed };
             }
             assertCrudExtraValuesWritableForRows(ctx, config, validRows);
+            assignBatchIds(validRows, idField, getTableColumn(table, idField));
             assertCrudExtraValuesMappableForRows(validRows, idField);
 
             const { insertedCount, updatedCount } =
@@ -2684,7 +2709,8 @@ export function createCrudRouter<
                       ...resolved.getInject(writeCtx, 'update'),
                     };
                     for (const key of updateFields) {
-                      setClause[key] = sql.raw(`excluded."${key}"`);
+                      const column = getTableColumn(table, key)!;
+                      setClause[key] = sql`excluded.${sql.identifier(column.name)}`;
                     }
 
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
